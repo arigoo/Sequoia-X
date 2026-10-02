@@ -1,0 +1,57 @@
+name: Sequoia-X Backfill
+
+# 手动触发：首次部署或换库时，一次性灌入全市场历史 K 线（约 12 分钟）
+# 入口：仓库 Actions 标签页 → Sequoia-X Backfill → Run workflow
+on:
+  workflow_dispatch: {}
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install "baostock>=0.9" "akshare>=1.10" "pandas>=2.0" \
+                      "pydantic-settings>=2.0" "python-dotenv>=1.0" "rich>=13.0" "requests>=2.31"
+
+      - name: Restore SQLite cache
+        uses: actions/cache@v4
+        with:
+          path: data/sequoia_v2.db
+          key: sequoia-db-v1
+
+      - name: Prepare .env from secrets
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          STRATEGY_WEBHOOK_MA_VOLUME: ${{ secrets.STRATEGY_WEBHOOK_MA_VOLUME }}
+          STRATEGY_WEBHOOK_TURTLE: ${{ secrets.STRATEGY_WEBHOOK_TURTLE }}
+          STRATEGY_WEBHOOK_FLAG: ${{ secrets.STRATEGY_WEBHOOK_FLAG }}
+          STRATEGY_WEBHOOK_SHAKEOUT: ${{ secrets.STRATEGY_WEBHOOK_SHAKEOUT }}
+          STRATEGY_WEBHOOK_LIMIT_DOWN: ${{ secrets.STRATEGY_WEBHOOK_LIMIT_DOWN }}
+          STRATEGY_WEBHOOK_RPS: ${{ secrets.STRATEGY_WEBHOOK_RPS }}
+          STRATEGY_WEBHOOK_PRIVATE_PLACEMENT: ${{ secrets.STRATEGY_WEBHOOK_PRIVATE_PLACEMENT }}
+        run: |
+          : > .env
+          [ -n "$FEISHU_WEBHOOK_URL" ] && echo "FEISHU_WEBHOOK_URL=$FEISHU_WEBHOOK_URL" >> .env
+          [ -n "$STRATEGY_WEBHOOK_MA_VOLUME" ] && echo "STRATEGY_WEBHOOK_MA_VOLUME=$STRATEGY_WEBHOOK_MA_VOLUME" >> .env
+          [ -n "$STRATEGY_WEBHOOK_TURTLE" ] && echo "STRATEGY_WEBHOOK_TURTLE=$STRATEGY_WEBHOOK_TURTLE" >> .env
+          [ -n "$STRATEGY_WEBHOOK_FLAG" ] && echo "STRATEGY_WEBHOOK_FLAG=$STRATEGY_WEBHOOK_FLAG" >> .env
+          [ -n "$STRATEGY_WEBHOOK_SHAKEOUT" ] && echo "STRATEGY_WEBHOOK_SHAKEOUT=$STRATEGY_WEBHOOK_SHAKEOUT" >> .env
+          [ -n "$STRATEGY_WEBHOOK_LIMIT_DOWN" ] && echo "STRATEGY_WEBHOOK_LIMIT_DOWN=$STRATEGY_WEBHOOK_LIMIT_DOWN" >> .env
+          [ -n "$STRATEGY_WEBHOOK_RPS" ] && echo "STRATEGY_WEBHOOK_RPS=$STRATEGY_WEBHOOK_RPS" >> .env
+          [ -n "$STRATEGY_WEBHOOK_PRIVATE_PLACEMENT" ] && echo "STRATEGY_WEBHOOK_PRIVATE_PLACEMENT=$STRATEGY_WEBHOOK_PRIVATE_PLACEMENT" >> .env
+
+      - name: Backfill all A-share history
+        run: |
+          mkdir -p data
+          python main.py --backfill

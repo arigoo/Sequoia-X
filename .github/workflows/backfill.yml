@@ -5,9 +5,18 @@ name: Sequoia-X Backfill
 on:
   workflow_dispatch: {}
 
+env:
+  # 策略最大历史需求 = RPS 的 120 根 K 线（约 6 个月交易日），
+  # 给 8 个月余量；比仓库默认 2024-01-01 少拉 4 倍数据。
+  START_DATE: "2026-02-01"
+  BACKFILL_WORKERS: "8"
+  TIME_BUDGET_MIN: "45"
+
 jobs:
   backfill:
     runs-on: ubuntu-latest
+    # 单 job 硬上限 6h；脚本内 45min 会主动优雅退出并保存 cache，
+    # 没跑完就再 Run 一次自动续传。
     timeout-minutes: 60
     steps:
       - name: Checkout
@@ -24,11 +33,15 @@ jobs:
           pip install "baostock>=0.9" "akshare>=1.10" "pandas>=2.0" \
                       "pydantic-settings>=2.0" "python-dotenv>=1.0" "rich>=13.0" "requests>=2.31"
 
+      # 注意：cache key 必须带 run_id。固定 key 一旦保存就无法覆盖，
+      # 后续进度会存不进去；restore-keys 保证每次拿到最近一次的数据库。
       - name: Restore SQLite cache
         uses: actions/cache@v4
         with:
           path: data/sequoia_v2.db
-          key: sequoia-db-v1
+          key: sequoia-db-${{ github.run_id }}
+          restore-keys: |
+            sequoia-db-
 
       - name: Prepare .env from secrets
         env:
@@ -54,7 +67,9 @@ jobs:
           done
           echo "--- .env 已写入，共 $(grep -c '=' .env || true) 个 key ---"
 
-      - name: Backfill all A-share history
+      # 不使用 main.py --backfill：它是单线程串行，海外 runner 上约 14 只/分钟，
+      # 5224 只需 5~6h 会撞 6h 上限。改用并行脚本，未完成可重跑续传。
+      - name: Parallel backfill (resumable)
         run: |
           mkdir -p data
-          python main.py --backfill
+          python tools/fast_backfill.py

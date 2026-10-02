@@ -7,10 +7,16 @@ on:
     - cron: "30 8 * * 1-5"
   workflow_dispatch: {}   # 也支持手动触发
 
+env:
+  # 策略最大历史需求 = RPS 的 120 根 K 线，给 8 个月余量
+  START_DATE: "2026-02-01"
+  BACKFILL_WORKERS: "8"
+  TIME_BUDGET_MIN: "40"
+
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,12 +32,15 @@ jobs:
           pip install "baostock>=0.9" "akshare>=1.10" "pandas>=2.0" \
                       "pydantic-settings>=2.0" "python-dotenv>=1.0" "rich>=13.0" "requests>=2.31"
 
-      # 跨次运行保留 SQLite，避免每次重灌 12 分钟
+      # 跨次运行保留 SQLite，避免每次重灌。
+      # key 必须带 run_id（固定 key 保存后无法覆盖），restore-keys 取最近一次。
       - name: Restore SQLite cache
         uses: actions/cache@v4
         with:
           path: data/sequoia_v2.db
-          key: sequoia-db-v1
+          key: sequoia-db-${{ github.run_id }}
+          restore-keys: |
+            sequoia-db-
 
       # 只把已配置的 webhook 写进 .env，未设置的策略自动回退到默认机器人
       - name: Prepare .env from secrets
@@ -56,14 +65,17 @@ jobs:
               echo "$v=$val" >> .env
             fi
           done
+          echo "START_DATE=${START_DATE:-2026-02-01}" >> .env
           echo "--- .env 已写入，共 $(grep -c '=' .env || true) 个 key ---"
 
-      - name: Run (DB 缺失时先自动 backfill)
+      # DB 缺失/不全时用并行脚本补灌（原 main.py --backfill 单线程会撞 6h 上限）。
+      # 脚本支持续传：一次灌不完，后续每天自动接着灌，逐渐补全。
+      - name: Run (backfill if needed, then daily screening)
         run: |
           mkdir -p data
           if [ ! -f data/sequoia_v2.db ]; then
-            echo "未检测到数据库，先执行 backfill（约 12 分钟）..."
-            python main.py --backfill
+            echo "未检测到数据库，先并行回填（受 TIME_BUDGET_MIN 限制，可续传）..."
+            python tools/fast_backfill.py
           fi
           echo "执行日常选股..."
           python main.py

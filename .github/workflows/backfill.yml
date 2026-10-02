@@ -42,14 +42,17 @@ jobs:
           STRATEGY_WEBHOOK_PRIVATE_PLACEMENT: ${{ secrets.STRATEGY_WEBHOOK_PRIVATE_PLACEMENT }}
         run: |
           : > .env
-          [ -n "$FEISHU_WEBHOOK_URL" ] && echo "FEISHU_WEBHOOK_URL=$FEISHU_WEBHOOK_URL" >> .env
-          [ -n "$STRATEGY_WEBHOOK_MA_VOLUME" ] && echo "STRATEGY_WEBHOOK_MA_VOLUME=$STRATEGY_WEBHOOK_MA_VOLUME" >> .env
-          [ -n "$STRATEGY_WEBHOOK_TURTLE" ] && echo "STRATEGY_WEBHOOK_TURTLE=$STRATEGY_WEBHOOK_TURTLE" >> .env
-          [ -n "$STRATEGY_WEBHOOK_FLAG" ] && echo "STRATEGY_WEBHOOK_FLAG=$STRATEGY_WEBHOOK_FLAG" >> .env
-          [ -n "$STRATEGY_WEBHOOK_SHAKEOUT" ] && echo "STRATEGY_WEBHOOK_SHAKEOUT=$STRATEGY_WEBHOOK_SHAKEOUT" >> .env
-          [ -n "$STRATEGY_WEBHOOK_LIMIT_DOWN" ] && echo "STRATEGY_WEBHOOK_LIMIT_DOWN=$STRATEGY_WEBHOOK_LIMIT_DOWN" >> .env
-          [ -n "$STRATEGY_WEBHOOK_RPS" ] && echo "STRATEGY_WEBHOOK_RPS=$STRATEGY_WEBHOOK_RPS" >> .env
-          [ -n "$STRATEGY_WEBHOOK_PRIVATE_PLACEMENT" ] && echo "STRATEGY_WEBHOOK_PRIVATE_PLACEMENT=$STRATEGY_WEBHOOK_PRIVATE_PLACEMENT" >> .env
+          # 注意：不能用 `[ -n "$X" ] && echo ...` —— Actions 用 bash -e 执行，
+          # 变量为空时该表达式整体返回 1，会直接判定步骤失败。改用 if，恒返回 0。
+          for v in FEISHU_WEBHOOK_URL STRATEGY_WEBHOOK_MA_VOLUME STRATEGY_WEBHOOK_TURTLE \
+                   STRATEGY_WEBHOOK_FLAG STRATEGY_WEBHOOK_SHAKEOUT STRATEGY_WEBHOOK_LIMIT_DOWN \
+                   STRATEGY_WEBHOOK_RPS STRATEGY_WEBHOOK_PRIVATE_PLACEMENT; do
+            val="$(printenv "$v" || true)"
+            if [ -n "$val" ]; then
+              echo "$v=$val" >> .env
+            fi
+          done
+          echo "--- .env 已写入，共 $(grep -c '=' .env || true) 个 key ---"
 
       - name: Backfill all A-share history
         run: |

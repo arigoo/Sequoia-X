@@ -4,7 +4,7 @@ name: Sequoia-X Daily
 # 北京 16:30 = UTC 08:30，GitHub cron 为 UTC 且无夏令时
 on:
   schedule:
-    - cron: "30 8 * * 1-5"
+    - cron: "10,20,35,55 7-8 * * 1-5"
   workflow_dispatch: {}   # 也支持手动触发
 
 env:
